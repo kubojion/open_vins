@@ -1,0 +1,46 @@
+# OpenVINS benchmark Dockerfile.
+# Builds OpenVINS (ov_core, ov_init, ov_msckf, ov_eval) inside a ROS 2 Humble
+# image so we can run it on Ubuntu 22.04 without polluting the host with ROS.
+#
+# Build (from repo root):
+#   docker build -t openvins:humble -f src/open_vins/Dockerfile.benchmark src/open_vins
+#
+# After build, run via scripts/run/run_openvins.sh which mounts datasets/configs/
+# and a Python publisher node that replays EuRoC-format CSVs into ROS 2 topics.
+
+FROM ros:humble-ros-base-jammy
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Build tools + OpenVINS deps + ROS bits we explicitly need (cv_bridge,
+# image_transport, rosbag2 - the ros-base image has only the core).
+# libceres-dev from apt is known to work on Humble (Ceres 2.0.0).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake git \
+        libeigen3-dev libboost-all-dev \
+        libgoogle-glog-dev libgflags-dev libatlas-base-dev libsuitesparse-dev \
+        libceres-dev \
+        ros-humble-cv-bridge ros-humble-image-transport ros-humble-tf2 \
+        ros-humble-tf2-ros ros-humble-tf2-geometry-msgs \
+        ros-humble-rosbag2 ros-humble-rosbag2-storage-default-plugins \
+        ros-humble-launch ros-humble-launch-ros \
+        python3-pip python3-numpy python3-yaml python3-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /colcon_ws/src
+COPY . /colcon_ws/src/open_vins/
+
+# Build OpenVINS. ENABLE_ARUCO_TAGS=OFF avoids needing opencv_contrib (aruco).
+WORKDIR /colcon_ws
+RUN /bin/bash -c "source /opt/ros/humble/setup.bash && \
+    colcon build --merge-install \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DENABLE_ARUCO_TAGS=OFF \
+        --packages-select ov_core ov_init ov_msckf ov_eval"
+
+# Source the workspace by default in interactive shells.
+RUN echo 'source /opt/ros/humble/setup.bash' >> /root/.bashrc \
+ && echo 'source /colcon_ws/install/setup.bash' >> /root/.bashrc
+
+# No ENTRYPOINT: the run wrapper invokes `docker run ... openvins:humble bash -c "..."`
+# directly; an entrypoint of `bash -c` would mangle the argument vector.
+CMD ["bash"]
