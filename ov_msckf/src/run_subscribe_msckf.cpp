@@ -112,11 +112,20 @@ int main(int argc, char **argv) {
   executor.spin();
 #endif
 
+  // Finish background work before reporting or releasing ROS objects.
+#if ROS_AVAILABLE == 2
+  viz->stop();
+#endif
   // Final visualization
   viz->visualize_final();
 #if ROS_AVAILABLE == 1
   ros::shutdown();
 #elif ROS_AVAILABLE == 2
+  // Global viz otherwise destroys DDS publishers during static destruction,
+  // after middleware singletons have gone away (Fast DDS SIGSEGV on Humble).
+  // Release them here while the executor/node/context still have clear lifetimes.
+  viz.reset();
+  sys.reset();
   rclcpp::shutdown();
 #endif
 

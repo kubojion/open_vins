@@ -149,16 +149,25 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
 
   // Start thread for the image publishing
   if (_app->get_params().use_multi_threading_pubs) {
-    std::thread thread([&] {
+    publishing_thread = std::thread([this] {
       rclcpp::Rate loop_rate(20);
-      while (rclcpp::ok()) {
+      while (!stop_publishing && rclcpp::ok()) {
         publish_images();
         loop_rate.sleep();
       }
     });
-    thread.detach();
   }
 }
+
+void ROS2Visualizer::stop() {
+  stop_publishing = true;
+  if (publishing_thread.joinable()) publishing_thread.join();
+  // The executor is stopped; drain the last already-dispatched update before
+  // releasing the state and publisher objects it uses.
+  while (thread_update_running) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
+ROS2Visualizer::~ROS2Visualizer() { stop(); }
 
 void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> parser) {
 
